@@ -81,8 +81,8 @@ jobs:
       - name: Write GitHub Summary
         run: |
           echo "## ML Pipeline Results" >> $GITHUB_STEP_SUMMARY
-          echo "**Name:** R J Hari" >> $GITHUB_STEP_SUMMARY
-          echo "**Roll Number:** 2022BCS0125" >> $GITHUB_STEP_SUMMARY
+          echo "**Name:** Abel Philip Joseph" >> $GITHUB_STEP_SUMMARY
+          echo "**Roll Number:** 2022BCS0068" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Metrics" >> $GITHUB_STEP_SUMMARY
           cat metrics.json >> $GITHUB_STEP_SUMMARY
