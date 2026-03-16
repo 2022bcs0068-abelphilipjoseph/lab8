@@ -1,0 +1,108 @@
+name: ML Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  train-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Dependencies
+        run: |
+          pip install dvc dvc-s3 pandas scikit-learn
+
+      - name: Configure AWS Credentials
+        run: |
+          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws configure set aws_session_token ${{ secrets.AWS_SESSION_TOKEN }}
+          aws configure set region us-east-1
+
+      - name: Pull Dataset from S3
+        run: dvc pull
+
+      - name: Train Model
+        run: python src/train.py
+
+      - name: Upload Metrics Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: metrics
+          path: metrics.json
+
+      - name: Compare Metrics
+        id: compare
+        run: |
+          python <<EOF
+          import json, os
+          
+          with open("metrics.json") as f:
+              new = json.load(f)
+          new_rmse = new.get("RMSE", 0)
+          new_r2 = new.get("R2", 0)
+          print(f"New RMSE: {new_rmse}")
+          print(f"New R2: {new_r2}")
+          
+          improved = True
+          
+          # This file must be committed to your repo for the comparison to work on future runs!
+          if os.path.exists("previous_metrics.json"):
+              with open("previous_metrics.json") as f:
+                  old = json.load(f)
+              old_rmse = old.get("RMSE", float('inf'))
+              old_r2 = old.get("R2", 0)
+              print(f"Old RMSE: {old_rmse}")
+              print(f"Old R2: {old_r2}")
+              
+              if not (new_rmse < old_rmse and new_r2 > old_r2):
+                  improved = False
+                  print("Model did not improve.")
+              else:
+                  print("Model improved!")
+          else:
+              print("No previous metrics found. Assuming improvement.")
+              
+          with open("improved.txt", "w") as f:
+              f.write("true" if improved else "false")
+          EOF
+
+      - name: Write GitHub Summary
+        run: |
+          echo "## ML Pipeline Results" >> $GITHUB_STEP_SUMMARY
+          echo "**Name:** R J Hari" >> $GITHUB_STEP_SUMMARY
+          echo "**Roll Number:** 2022BCS0125" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Metrics" >> $GITHUB_STEP_SUMMARY
+          cat metrics.json >> $GITHUB_STEP_SUMMARY
+
+      - name: Check if Model Improved
+        id: improved
+        run: |
+          if grep -q "true" improved.txt; then
+            echo "improved=true" >> $GITHUB_OUTPUT
+          else
+            echo "improved=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Login to DockerHub
+        if: steps.improved.outputs.improved == 'true'
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Build Docker Image
+        if: steps.improved.outputs.improved == 'true'
+        run: docker build -t ${{ secrets.DOCKER_USERNAME }}/housing-model .
+
+      - name: Push Docker Image
+        if: steps.improved.outputs.improved == 'true'
+        run: docker push ${{ secrets.DOCKER_USERNAME }}/housing-model
